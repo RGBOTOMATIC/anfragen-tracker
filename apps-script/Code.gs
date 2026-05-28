@@ -2,7 +2,7 @@
 // Deployment: Deployen → Als Web-App → Ausführen als: Ich, Zugriff: Jeder
 
 const SHEET_NAME = 'Anfragen';
-const HEADERS = ['id', 'quelle', 'kunde', 'notiz', 'adresse', 'status', 'datum'];
+const HEADERS = ['id', 'quelle', 'kunde', 'notiz', 'adresse', 'telefon', 'email', 'status', 'datum'];
 
 function getSheet() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();

@@ -69,6 +69,7 @@
 
     const emptyForm = () => ({
       quelle: "MyHammer", kunde: "", notiz: "", adresse: "",
+      telefon: "", email: "",
       status: "Offen", datum: new Date().toISOString().slice(0, 10),
     });
 
@@ -283,6 +284,12 @@
             <label style={styles.label}>Adresse</label>
             <input style={styles.input} placeholder="Musterstr. 1, 12345 Stadt" value={form.adresse}
               onChange={e => setForm(f => ({ ...f, adresse: e.target.value }))} />
+            <label style={styles.label}>Telefon</label>
+            <input style={styles.input} placeholder="z. B. 0151 12345678" value={form.telefon}
+              type="tel" onChange={e => setForm(f => ({ ...f, telefon: e.target.value }))} />
+            <label style={styles.label}>E-Mail</label>
+            <input style={styles.input} placeholder="z. B. kunde@beispiel.de" value={form.email}
+              type="email" onChange={e => setForm(f => ({ ...f, email: e.target.value }))} />
             <label style={styles.label}>Notiz / Leistung</label>
             <textarea style={{ ...styles.input, height: 80, resize: "vertical" }}
               placeholder="z. B. Bilder erfragt, Innenputz 80m²..."
@@ -318,8 +325,10 @@
               <div style={{ ...styles.badge, background: statusColor(a.status) }}>{a.status}</div>
               <div style={styles.detailQuelle}>{a.quelle}</div>
               <div style={styles.detailKunde}>{a.kunde}</div>
-              {a.adresse && <div style={styles.detailMeta}>📍 {a.adresse}</div>}
-              {a.notiz   && <div style={styles.detailNotiz}>{a.notiz}</div>}
+              {a.adresse  && <div style={styles.detailMeta}>📍 {a.adresse}</div>}
+              {a.telefon  && <div style={styles.detailMeta}>📞 {a.telefon}</div>}
+              {a.email    && <div style={styles.detailMeta}>✉️ {a.email}</div>}
+              {a.notiz    && <div style={styles.detailNotiz}>{a.notiz}</div>}
               <div style={styles.detailMeta}>📅 {a.datum}</div>
               <div style={{ marginTop: 28 }}>
                 <div style={styles.label}>Status ändern</div>
