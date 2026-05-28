@@ -1,4 +1,4 @@
-const CACHE_NAME = 'anfragen-v1';
+const CACHE_NAME = 'anfragen-v2';
 
 const PRECACHE = [
   './',

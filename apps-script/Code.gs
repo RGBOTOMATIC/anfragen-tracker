@@ -1,8 +1,10 @@
 // === Anfragen-Tracker – Google Apps Script Backend ===
 // Deployment: Deployen → Als Web-App → Ausführen als: Ich, Zugriff: Jeder
 
-const SHEET_NAME = 'Anfragen';
-const HEADERS = ['id', 'quelle', 'kunde', 'notiz', 'adresse', 'telefon', 'email', 'status', 'datum'];
+const SHEET_NAME          = 'Anfragen';
+const GEBURTSTAGE_SHEET   = 'Geburtstage';
+const HEADERS             = ['id', 'quelle', 'kunde', 'notiz', 'adresse', 'telefon', 'email', 'status', 'datum'];
+const GEBURTSTAGE_HEADERS = ['id', 'name', 'datum', 'notiz'];
 
 function getSheet() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -16,6 +18,18 @@ function getSheet() {
   return sheet;
 }
 
+function getGeburtstageSheet() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName(GEBURTSTAGE_SHEET);
+  if (!sheet) {
+    sheet = ss.insertSheet(GEBURTSTAGE_SHEET);
+    sheet.appendRow(GEBURTSTAGE_HEADERS);
+    sheet.setFrozenRows(1);
+    sheet.getRange(1, 1, 1, GEBURTSTAGE_HEADERS.length).setFontWeight('bold');
+  }
+  return sheet;
+}
+
 // Zellwert sicher als String – wandelt Datumsobjekte in ISO-Format um
 function cellStr(val) {
   if (val instanceof Date) {
@@ -24,40 +38,64 @@ function cellStr(val) {
   return String(val === null || val === undefined ? '' : val);
 }
 
-function doGet() {
+function doGet(e) {
   try {
-    const sheet = getSheet();
-    const rows = sheet.getDataRange().getValues();
-    if (rows.length <= 1) return out([]);
+    const sheetParam = (e && e.parameter && e.parameter.sheet) ? e.parameter.sheet : 'anfragen';
 
-    const data = rows.slice(1).map(row =>
-      Object.fromEntries(HEADERS.map((h, i) => [h, cellStr(row[i])]))
-    );
-    return out(data);
-  } catch (e) {
-    return out({ error: e.message });
+    if (sheetParam === 'geburtstage') {
+      const sheet = getGeburtstageSheet();
+      const rows = sheet.getDataRange().getValues();
+      if (rows.length <= 1) return out([]);
+      const data = rows.slice(1).map(row =>
+        Object.fromEntries(GEBURTSTAGE_HEADERS.map((h, i) => [h, cellStr(row[i])]))
+      );
+      return out(data);
+    } else {
+      const sheet = getSheet();
+      const rows = sheet.getDataRange().getValues();
+      if (rows.length <= 1) return out([]);
+      const data = rows.slice(1).map(row =>
+        Object.fromEntries(HEADERS.map((h, i) => [h, cellStr(row[i])]))
+      );
+      return out(data);
+    }
+  } catch (err) {
+    return out({ error: err.message });
   }
 }
 
 function doPost(e) {
   try {
-    const { action, data } = JSON.parse(e.postData.contents);
+    const body       = JSON.parse(e.postData.contents);
+    const action     = body.action;
+    const sheetParam = body.sheet || 'anfragen';
+    const data       = body.data || [];
 
     if (action === 'save') {
-      const sheet = getSheet();
-      sheet.clearContents();
-      sheet.appendRow(HEADERS);
-      sheet.getRange(1, 1, 1, HEADERS.length).setFontWeight('bold');
-
-      if (data.length > 0) {
-        const rows = data.map(item => HEADERS.map(h => item[h] !== undefined ? item[h] : ''));
-        sheet.getRange(2, 1, rows.length, HEADERS.length).setValues(rows);
+      if (sheetParam === 'geburtstage') {
+        const sheet = getGeburtstageSheet();
+        sheet.clearContents();
+        sheet.appendRow(GEBURTSTAGE_HEADERS);
+        sheet.getRange(1, 1, 1, GEBURTSTAGE_HEADERS.length).setFontWeight('bold');
+        if (data.length > 0) {
+          const rows = data.map(item => GEBURTSTAGE_HEADERS.map(h => item[h] !== undefined ? item[h] : ''));
+          sheet.getRange(2, 1, rows.length, GEBURTSTAGE_HEADERS.length).setValues(rows);
+        }
+      } else {
+        const sheet = getSheet();
+        sheet.clearContents();
+        sheet.appendRow(HEADERS);
+        sheet.getRange(1, 1, 1, HEADERS.length).setFontWeight('bold');
+        if (data.length > 0) {
+          const rows = data.map(item => HEADERS.map(h => item[h] !== undefined ? item[h] : ''));
+          sheet.getRange(2, 1, rows.length, HEADERS.length).setValues(rows);
+        }
       }
     }
 
     return out({ ok: true });
-  } catch (e) {
-    return out({ error: e.message });
+  } catch (err) {
+    return out({ error: err.message });
   }
 }
 
