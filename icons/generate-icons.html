@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <title>Icons generieren</title>
+  <style>
+    body { font-family: system-ui, sans-serif; background: #f4f4f0; padding: 32px; text-align: center; }
+    h1 { font-size: 20px; margin-bottom: 8px; }
+    p { color: #666; margin-bottom: 24px; font-size: 14px; }
+    .row { display: flex; gap: 32px; justify-content: center; flex-wrap: wrap; }
+    .item { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+    canvas { border-radius: 12px; box-shadow: 0 4px 16px rgba(0,0,0,0.2); }
+    button {
+      background: #1a1a1a; color: #fff; border: none; border-radius: 8px;
+      padding: 10px 20px; font-size: 14px; cursor: pointer; font-family: inherit;
+    }
+    button:hover { background: #333; }
+    .note { margin-top: 32px; background: #fff; border-radius: 12px; padding: 16px; max-width: 480px; margin-inline: auto; font-size: 13px; color: #444; text-align: left; line-height: 1.6; }
+    code { background: #f0f0f0; padding: 2px 6px; border-radius: 4px; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <h1>App-Icons generieren</h1>
+  <p>Klicke auf „Herunterladen" und speichere die Dateien im Ordner <code>anfragen-tracker/icons/</code></p>
+
+  <div class="row">
+    <div class="item">
+      <canvas id="c192" width="192" height="192"></canvas>
+      <button onclick="download('c192', 'icon-192.png')">⬇ icon-192.png</button>
+    </div>
+    <div class="item">
+      <canvas id="c512" width="512" height="512"></canvas>
+      <button onclick="download('c512', 'icon-512.png')">⬇ icon-512.png</button>
+    </div>
+  </div>
+
+  <div class="note">
+    <strong>Anleitung:</strong><br />
+    1. Beide Icons herunterladen<br />
+    2. Dateien in den Ordner <code>anfragen-tracker/icons/</code> verschieben<br />
+    3. Dann alles auf GitHub pushen
+  </div>
+
+  <script>
+    function drawIcon(canvas) {
+      const size = canvas.width;
+      const ctx = canvas.getContext('2d');
+
+      // Hintergrund (dunkles Rounded Square)
+      ctx.fillStyle = '#1a1a1a';
+      const r = size * 0.18;
+      ctx.beginPath();
+      ctx.roundRect(0, 0, size, size, r);
+      ctx.fill();
+
+      // Klemmbrett-Körper (weißes Rechteck)
+      const bx = size * 0.16;
+      const by = size * 0.20;
+      const bw = size * 0.68;
+      const bh = size * 0.68;
+      const br = size * 0.07;
+
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.roundRect(bx, by, bw, bh, br);
+      ctx.fill();
+
+      // Klemme oben (amber)
+      const cx = size * 0.36;
+      const cy = by - size * 0.04;
+      const cw = size * 0.28;
+      const ch = size * 0.09;
+      const cr = ch / 2;
+
+      ctx.fillStyle = '#f59e0b';
+      ctx.beginPath();
+      ctx.roundRect(cx, cy, cw, ch, cr);
+      ctx.fill();
+
+      // Loch in Klemme
+      ctx.fillStyle = '#1a1a1a';
+      ctx.beginPath();
+      ctx.arc(size / 2, cy + ch / 2, ch * 0.28, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Zeilen (Formularfelder)
+      ctx.fillStyle = '#e2e2e2';
+      const lx = bx + size * 0.09;
+      const lh = size * 0.05;
+      const lr = lh / 2;
+      const startY = by + size * 0.15;
+      const gap = size * 0.12;
+      const fullW = bw - size * 0.18;
+
+      for (let i = 0; i < 4; i++) {
+        const lw = i === 3 ? fullW * 0.55 : fullW;
+        ctx.beginPath();
+        ctx.roundRect(lx, startY + i * gap, lw, lh, lr);
+        ctx.fill();
+      }
+
+      // Amber-Punkt oben rechts (Status-Indikator)
+      ctx.fillStyle = '#f59e0b';
+      ctx.beginPath();
+      ctx.arc(bx + bw - size * 0.08, by + size * 0.08, size * 0.055, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    function download(id, filename) {
+      const canvas = document.getElementById(id);
+      const a = document.createElement('a');
+      a.href = canvas.toDataURL('image/png');
+      a.download = filename;
+      a.click();
+    }
+
+    drawIcon(document.getElementById('c192'));
+    drawIcon(document.getElementById('c512'));
+  </script>
+</body>
+</html>

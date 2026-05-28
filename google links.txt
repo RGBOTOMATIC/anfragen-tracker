@@ -1,0 +1,5 @@
+Bereitstellungs-ID
+AKfycbxj1yRgbINQkDkm0aV_zKXcQqV0CT73cZDZ7oQZIkGY-WRNrvrc_yy-gqDmPF4U8h2C
+
+url:
+https://script.google.com/macros/s/AKfycbxj1yRgbINQkDkm0aV_zKXcQqV0CT73cZDZ7oQZIkGY-WRNrvrc_yy-gqDmPF4U8h2C/exec

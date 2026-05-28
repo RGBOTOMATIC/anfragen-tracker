@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#1a1a1a" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Anfragen" />
+  <link rel="manifest" href="manifest.json" />
+  <link rel="apple-touch-icon" href="icons/icon-192.png" />
+  <title>Anfragen-Tracker</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { background: #f4f4f0; -webkit-tap-highlight-color: transparent; }
+    #root { padding-bottom: env(safe-area-inset-bottom); }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .spinning { animation: spin 1s linear infinite; display: inline-block; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef } = React;
+
+    const QUELLEN = ["MyHammer", "Maler-Profi", "Empfehlung", "Homepage", "Telefon", "E-Mail", "WhatsApp", "Sonstiges"];
+    const STATI = [
+      { label: "Offen",         color: "#f59e0b" },
+      { label: "Angebot raus",  color: "#3b82f6" },
+      { label: "Auftrag",       color: "#10b981" },
+      { label: "Abgeschlossen", color: "#6b7280" },
+      { label: "Abgesagt",      color: "#ef4444" },
+    ];
+    const STORAGE_KEY  = "anfragen-v1";
+    const SYNC_URL_KEY = "anfragen-script-url";
+    const SYNC_COLOR   = { idle: "#888", syncing: "#f59e0b", ok: "#10b981", error: "#ef4444" };
+
+    // ── localStorage helpers ──────────────────────────────────────────
+    function loadData() {
+      try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]"); } catch { return []; }
+    }
+    function saveData(data) {
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } catch {}
+    }
+
+    // ── Sheets helpers ────────────────────────────────────────────────
+    async function sheetsGet(url) {
+      const res = await fetch(url + "?t=" + Date.now());
+      const data = await res.json();
+      if (!Array.isArray(data)) throw new Error("Ungültige Antwort vom Script");
+      return data.map(r => ({ ...r, id: Number(r.id) }));
+    }
+
+    async function sheetsPost(url, data) {
+      const res = await fetch(url, {
+        method: "POST",
+        // text/plain vermeidet CORS-Preflight; Apps Script akzeptiert es
+        headers: { "Content-Type": "text/plain" },
+        body: JSON.stringify({ action: "save", data }),
+      });
+      if (!res.ok) throw new Error("HTTP " + res.status);
+    }
+
+    const emptyForm = () => ({
+      quelle: "MyHammer", kunde: "", notiz: "", adresse: "",
+      status: "Offen", datum: new Date().toISOString().slice(0, 10),
+    });
+
+    // ── App ───────────────────────────────────────────────────────────
+    function App() {
+      const [anfragen,    setAnfragen]    = useState(loadData);
+      const [view,        setView]        = useState("list"); // list | new | detail | settings
+      const [form,        setForm]        = useState(emptyForm());
+      const [selected,    setSelected]    = useState(null);
+      const [filter,      setFilter]      = useState("Alle");
+      const [search,      setSearch]      = useState("");
+      const [syncStatus,  setSyncStatus]  = useState("idle"); // idle | syncing | ok | error
+      const [settingsUrl, setSettingsUrl] = useState("");
+      const [testResult,  setTestResult]  = useState(null);   // null | { loading } | { ok, count } | { ok:false, msg }
+
+      const syncUrlRef  = useRef(localStorage.getItem(SYNC_URL_KEY) || "");
+      const skipSyncRef = useRef(false); // verhindert Rückschreiben nach Sheets-Lesevorgang
+
+      // Beim Start: Daten aus Sheets laden
+      useEffect(() => {
+        const url = syncUrlRef.current;
+        if (!url) return;
+        setSyncStatus("syncing");
+        sheetsGet(url)
+          .then(data => {
+            if (data.length > 0) {
+              skipSyncRef.current = true;
+              setAnfragen(data);
+              saveData(data);
+            } else {
+              // Sheets leer → lokale Daten hochladen (Ersteinrichtung)
+              const local = loadData();
+              if (local.length > 0) sheetsPost(url, local).catch(() => {});
+            }
+            setSyncStatus("ok");
+          })
+          .catch(() => setSyncStatus("error"));
+      }, []);
+
+      // Bei jeder Datenänderung: lokal speichern + zu Sheets hochladen (debounced)
+      useEffect(() => {
+        saveData(anfragen);
+        if (skipSyncRef.current) { skipSyncRef.current = false; return; }
+        const url = syncUrlRef.current;
+        if (!url) return;
+        setSyncStatus("syncing");
+        const t = setTimeout(() => {
+          sheetsPost(url, anfragen)
+            .then(() => setSyncStatus("ok"))
+            .catch(() => setSyncStatus("error"));
+        }, 600);
+        return () => clearTimeout(t);
+      }, [anfragen]);
+
+      // Manuell aus Sheets aktualisieren (Tipp auf Sync-Punkt)
+      const refreshFromSheets = () => {
+        const url = syncUrlRef.current;
+        if (!url) return;
+        setSyncStatus("syncing");
+        sheetsGet(url)
+          .then(data => {
+            if (data.length > 0) {
+              skipSyncRef.current = true;
+              setAnfragen(data);
+              saveData(data);
+            }
+            setSyncStatus("ok");
+          })
+          .catch(() => setSyncStatus("error"));
+      };
+
+      const addAnfrage = () => {
+        if (!form.kunde.trim()) return;
+        setAnfragen(prev => [{ ...form, id: Date.now() }, ...prev]);
+        setForm(emptyForm());
+        setView("list");
+      };
+      const updateStatus  = (id, status) =>
+        setAnfragen(prev => prev.map(a => a.id === id ? { ...a, status } : a));
+      const deleteAnfrage = (id) => {
+        if (!window.confirm("Anfrage wirklich löschen?")) return;
+        setAnfragen(prev => prev.filter(a => a.id !== id));
+        setView("list"); setSelected(null);
+      };
+
+      const testConnection = async () => {
+        if (!settingsUrl.trim()) return;
+        setTestResult({ loading: true });
+        try {
+          const data = await sheetsGet(settingsUrl.trim());
+          setTestResult({ ok: true, count: data.length });
+        } catch (e) {
+          setTestResult({ ok: false, msg: e.message });
+        }
+      };
+
+      const saveSettings = async () => {
+        const url = settingsUrl.trim();
+        syncUrlRef.current = url;
+        localStorage.setItem(SYNC_URL_KEY, url);
+        setView("list");
+        if (!url) return;
+        setSyncStatus("syncing");
+        try {
+          const data = await sheetsGet(url);
+          if (data.length > 0) {
+            skipSyncRef.current = true;
+            setAnfragen(data);
+            saveData(data);
+          } else {
+            await sheetsPost(url, anfragen);
+          }
+          setSyncStatus("ok");
+        } catch { setSyncStatus("error"); }
+      };
+
+      const filtered = anfragen.filter(a => {
+        const matchFilter = filter === "Alle" || a.status === filter;
+        const matchSearch = !search ||
+          a.kunde.toLowerCase().includes(search.toLowerCase()) ||
+          a.notiz.toLowerCase().includes(search.toLowerCase()) ||
+          a.quelle.toLowerCase().includes(search.toLowerCase());
+        return matchFilter && matchSearch;
+      });
+      const statusColor = s => STATI.find(x => x.label === s)?.color || "#999";
+      const hasSyncUrl  = !!syncUrlRef.current;
+
+      // ── SETTINGS ──────────────────────────────────────────────────────
+      if (view === "settings") return (
+        <div style={styles.page}>
+          <div style={styles.header}>
+            <button style={styles.back} onClick={() => setView("list")}>← Zurück</button>
+            <span style={styles.title}>Einstellungen</span>
+            <div style={{ width: 70 }} />
+          </div>
+          <div style={styles.form}>
+            <label style={styles.label}>Google Apps Script URL</label>
+            <textarea
+              style={{ ...styles.input, height: 80, fontSize: 13, resize: "vertical" }}
+              placeholder="https://script.google.com/macros/s/…/exec"
+              value={settingsUrl}
+              onChange={e => { setSettingsUrl(e.target.value); setTestResult(null); }}
+            />
+
+            {testResult && !testResult.loading && (
+              <div style={{
+                padding: "10px 14px", borderRadius: 8, marginBottom: 8, fontSize: 13,
+                background: testResult.ok ? "#d1fae5" : "#fee2e2",
+                color:      testResult.ok ? "#065f46" : "#991b1b",
+              }}>
+                {testResult.ok
+                  ? `✓ Verbunden – ${testResult.count} Einträge im Sheet`
+                  : `✗ Fehler: ${testResult.msg}`}
+              </div>
+            )}
+
+            <button
+              style={{ ...styles.chip, width: "100%", textAlign: "center", padding: "10px", marginBottom: 8 }}
+              onClick={testConnection}>
+              {testResult?.loading ? "…" : "Verbindung testen"}
+            </button>
+
+            <button style={styles.primary} onClick={saveSettings}>Speichern & verbinden</button>
+
+            <div style={{ marginTop: 24, background: "#fff", borderRadius: 12, padding: 16 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 10 }}>Setup-Anleitung</div>
+              <div style={{ fontSize: 13, color: "#555", lineHeight: 1.9 }}>
+                <div>1. Neues Google Sheet anlegen</div>
+                <div>2. <strong>Erweiterungen → Apps Script</strong></div>
+                <div>3. Inhalt von <code style={{ background: "#f0f0f0", padding: "1px 5px", borderRadius: 4 }}>apps-script/Code.gs</code> einfügen</div>
+                <div>4. <strong>Deployen → Als Web-App</strong></div>
+                <div>&nbsp;&nbsp;&nbsp;Ausführen als: <em>Ich</em> · Zugriff: <em>Jeder</em></div>
+                <div>5. Die Deployment-URL hier einfügen</div>
+              </div>
+            </div>
+
+            {hasSyncUrl && (
+              <button
+                style={{ ...styles.chip, width: "100%", textAlign: "center", padding: "10px", marginTop: 16, color: "#ef4444", borderColor: "#ef4444" }}
+                onClick={() => {
+                  syncUrlRef.current = "";
+                  localStorage.removeItem(SYNC_URL_KEY);
+                  setSettingsUrl(""); setTestResult(null); setSyncStatus("idle");
+                }}>
+                Sync deaktivieren
+              </button>
+            )}
+          </div>
+        </div>
+      );
+
+      // ── NEW FORM ──────────────────────────────────────────────────────
+      if (view === "new") return (
+        <div style={styles.page}>
+          <div style={styles.header}>
+            <button style={styles.back} onClick={() => setView("list")}>← Zurück</button>
+            <span style={styles.title}>Neue Anfrage</span>
+            <div style={{ width: 70 }} />
+          </div>
+          <div style={styles.form}>
+            <label style={styles.label}>Quelle</label>
+            <div style={styles.chipRow}>
+              {QUELLEN.map(q => (
+                <button key={q}
+                  style={{ ...styles.chip, ...(form.quelle === q ? styles.chipActive : {}) }}
+                  onClick={() => setForm(f => ({ ...f, quelle: q }))}>{q}</button>
+              ))}
+            </div>
+            <label style={styles.label}>Kunde / Name *</label>
+            <input style={styles.input} placeholder="z. B. Meyer" value={form.kunde}
+              onChange={e => setForm(f => ({ ...f, kunde: e.target.value }))} autoFocus />
+            <label style={styles.label}>Adresse</label>
+            <input style={styles.input} placeholder="Musterstr. 1, 12345 Stadt" value={form.adresse}
+              onChange={e => setForm(f => ({ ...f, adresse: e.target.value }))} />
+            <label style={styles.label}>Notiz / Leistung</label>
+            <textarea style={{ ...styles.input, height: 80, resize: "vertical" }}
+              placeholder="z. B. Bilder erfragt, Innenputz 80m²..."
+              value={form.notiz} onChange={e => setForm(f => ({ ...f, notiz: e.target.value }))} />
+            <label style={styles.label}>Status</label>
+            <div style={styles.chipRow}>
+              {STATI.map(s => (
+                <button key={s.label}
+                  style={{ ...styles.chip, ...(form.status === s.label ? { background: s.color, color: "#fff", borderColor: s.color } : {}) }}
+                  onClick={() => setForm(f => ({ ...f, status: s.label }))}>{s.label}</button>
+              ))}
+            </div>
+            <label style={styles.label}>Datum</label>
+            <input type="date" style={styles.input} value={form.datum}
+              onChange={e => setForm(f => ({ ...f, datum: e.target.value }))} />
+            <button style={styles.primary} onClick={addAnfrage}>＋ Speichern</button>
+          </div>
+        </div>
+      );
+
+      // ── DETAIL ────────────────────────────────────────────────────────
+      if (view === "detail" && selected) {
+        const a = anfragen.find(x => x.id === selected);
+        if (!a) { setView("list"); return null; }
+        return (
+          <div style={styles.page}>
+            <div style={styles.header}>
+              <button style={styles.back} onClick={() => setView("list")}>← Zurück</button>
+              <span style={styles.title}>Anfrage</span>
+              <button style={{ ...styles.back, color: "#ef4444" }} onClick={() => deleteAnfrage(a.id)}>Löschen</button>
+            </div>
+            <div style={{ padding: "16px 16px 100px" }}>
+              <div style={{ ...styles.badge, background: statusColor(a.status) }}>{a.status}</div>
+              <div style={styles.detailQuelle}>{a.quelle}</div>
+              <div style={styles.detailKunde}>{a.kunde}</div>
+              {a.adresse && <div style={styles.detailMeta}>📍 {a.adresse}</div>}
+              {a.notiz   && <div style={styles.detailNotiz}>{a.notiz}</div>}
+              <div style={styles.detailMeta}>📅 {a.datum}</div>
+              <div style={{ marginTop: 28 }}>
+                <div style={styles.label}>Status ändern</div>
+                <div style={styles.chipRow}>
+                  {STATI.map(s => (
+                    <button key={s.label}
+                      style={{ ...styles.chip, ...(a.status === s.label ? { background: s.color, color: "#fff", borderColor: s.color } : {}) }}
+                      onClick={() => updateStatus(a.id, s.label)}>{s.label}</button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      }
+
+      // ── LIST ──────────────────────────────────────────────────────────
+      const counts = {};
+      STATI.forEach(s => { counts[s.label] = anfragen.filter(a => a.status === s.label).length; });
+
+      return (
+        <div style={styles.page}>
+          <div style={styles.header}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={styles.title}>📋 Anfragen</span>
+              {hasSyncUrl && (
+                <button onClick={refreshFromSheets} style={styles.syncBtn}
+                  title={syncStatus === "error" ? "Sync-Fehler – tippen zum Wiederholen" : "Aus Sheets laden"}>
+                  <span
+                    style={{ ...styles.syncDot, background: SYNC_COLOR[syncStatus] }}
+                    className={syncStatus === "syncing" ? "spinning" : ""} />
+                </button>
+              )}
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button style={styles.settingsBtn}
+                onClick={() => { setSettingsUrl(syncUrlRef.current); setTestResult(null); setView("settings"); }}>
+                ⚙
+              </button>
+              <button style={styles.addBtn} onClick={() => { setForm(emptyForm()); setView("new"); }}>＋ Neu</button>
+            </div>
+          </div>
+
+          <div style={{ padding: "10px 16px 0" }}>
+            <input style={{ ...styles.input, marginBottom: 0 }} placeholder="🔍 Suchen…"
+              value={search} onChange={e => setSearch(e.target.value)} />
+          </div>
+
+          <div style={styles.tabs}>
+            {["Alle", ...STATI.map(s => s.label)].map(f => (
+              <button key={f}
+                style={{ ...styles.tab, ...(filter === f ? { borderBottom: "2px solid #1a1a1a", color: "#1a1a1a", fontWeight: "600" } : {}) }}
+                onClick={() => setFilter(f)}>
+                {f}
+                <span style={styles.tabCount}>{f === "Alle" ? anfragen.length : (counts[f] || 0)}</span>
+              </button>
+            ))}
+          </div>
+
+          <div style={styles.list}>
+            {filtered.length === 0 && <div style={styles.empty}>Keine Anfragen gefunden</div>}
+            {filtered.map(a => (
+              <button key={a.id} style={styles.card} onClick={() => { setSelected(a.id); setView("detail"); }}>
+                <div style={styles.cardLeft}>
+                  <div style={{ ...styles.statusDot, background: statusColor(a.status) }} />
+                </div>
+                <div style={styles.cardBody}>
+                  <div style={styles.cardTop}>
+                    <span style={styles.cardQuelle}>{a.quelle}</span>
+                    <span style={styles.cardDatum}>{a.datum}</span>
+                  </div>
+                  <div style={styles.cardKunde}>{a.kunde}</div>
+                  {a.notiz   && <div style={styles.cardNotiz}>{a.notiz}</div>}
+                  {a.adresse && <div style={styles.cardAdresse}>📍 {a.adresse}</div>}
+                </div>
+                <div style={{ ...styles.badge, background: statusColor(a.status), alignSelf: "center", flexShrink: 0 }}>
+                  {a.status}
+                </div>
+              </button>
+            ))}
+          </div>
+
+          {anfragen.length > 0 && (
+            <div style={styles.statsBar}>
+              <span>✅ {counts["Auftrag"] || 0} Aufträge</span>
+              <span>📬 {counts["Offen"] || 0} offen</span>
+              <span>📄 {counts["Angebot raus"] || 0} Angebote</span>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    const styles = {
+      page:        { fontFamily: "'Segoe UI', system-ui, sans-serif", background: "#f4f4f0", minHeight: "100vh", maxWidth: 480, margin: "0 auto", position: "relative" },
+      header:      { background: "#1a1a1a", color: "#fff", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 16px", paddingTop: "max(14px, env(safe-area-inset-top))", position: "sticky", top: 0, zIndex: 10 },
+      title:       { fontSize: 18, fontWeight: "700", letterSpacing: "-0.3px" },
+      back:        { background: "none", border: "none", color: "#ccc", fontSize: 14, cursor: "pointer", padding: "4px 0" },
+      addBtn:      { background: "#f59e0b", color: "#1a1a1a", border: "none", borderRadius: 8, padding: "8px 14px", fontWeight: "700", fontSize: 15, cursor: "pointer" },
+      settingsBtn: { background: "none", border: "1px solid #444", color: "#ccc", borderRadius: 8, padding: "7px 10px", fontSize: 15, cursor: "pointer" },
+      syncBtn:     { background: "none", border: "none", cursor: "pointer", padding: 4, display: "flex", alignItems: "center" },
+      syncDot:     { display: "inline-block", width: 10, height: 10, borderRadius: "50%" },
+      form:        { padding: "16px 16px 100px" },
+      label:       { display: "block", fontSize: 12, fontWeight: "600", color: "#666", marginBottom: 6, marginTop: 16, textTransform: "uppercase", letterSpacing: "0.5px" },
+      input:       { width: "100%", boxSizing: "border-box", border: "1.5px solid #ddd", borderRadius: 10, padding: "12px 14px", fontSize: 16, background: "#fff", outline: "none", marginBottom: 4, fontFamily: "inherit" },
+      chipRow:     { display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 4 },
+      chip:        { border: "1.5px solid #ddd", borderRadius: 20, padding: "7px 14px", fontSize: 13, background: "#fff", cursor: "pointer", fontFamily: "inherit", color: "#444" },
+      chipActive:  { background: "#1a1a1a", color: "#fff", borderColor: "#1a1a1a" },
+      primary:     { marginTop: 24, width: "100%", background: "#1a1a1a", color: "#fff", border: "none", borderRadius: 12, padding: "16px", fontSize: 17, fontWeight: "700", cursor: "pointer", fontFamily: "inherit" },
+      tabs:        { display: "flex", overflowX: "auto", background: "#fff", borderBottom: "1px solid #eee", padding: "0 8px" },
+      tab:         { flex: "0 0 auto", background: "none", border: "none", borderBottom: "2px solid transparent", padding: "12px 10px", fontSize: 13, color: "#888", cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", gap: 4, whiteSpace: "nowrap" },
+      tabCount:    { background: "#f0f0f0", borderRadius: 10, padding: "1px 6px", fontSize: 11, fontWeight: "700", color: "#666" },
+      list:        { padding: "12px 12px 80px" },
+      empty:       { textAlign: "center", color: "#aaa", padding: "60px 20px", fontSize: 15 },
+      card:        { width: "100%", display: "flex", alignItems: "flex-start", gap: 12, background: "#fff", border: "none", borderRadius: 12, padding: "14px 12px", marginBottom: 10, cursor: "pointer", textAlign: "left", boxShadow: "0 1px 4px rgba(0,0,0,0.07)", fontFamily: "inherit" },
+      cardLeft:    { paddingTop: 4 },
+      statusDot:   { width: 10, height: 10, borderRadius: "50%", flexShrink: 0 },
+      cardBody:    { flex: 1, minWidth: 0 },
+      cardTop:     { display: "flex", justifyContent: "space-between", marginBottom: 2 },
+      cardQuelle:  { fontSize: 11, color: "#888", fontWeight: "600", textTransform: "uppercase" },
+      cardDatum:   { fontSize: 11, color: "#aaa" },
+      cardKunde:   { fontSize: 16, fontWeight: "700", color: "#1a1a1a", marginBottom: 3 },
+      cardNotiz:   { fontSize: 13, color: "#555", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
+      cardAdresse: { fontSize: 12, color: "#888", marginTop: 2 },
+      badge:       { borderRadius: 6, padding: "3px 8px", fontSize: 11, fontWeight: "700", color: "#fff", whiteSpace: "nowrap" },
+      detailQuelle:{ fontSize: 12, color: "#888", fontWeight: "600", textTransform: "uppercase", marginBottom: 4, marginTop: 12 },
+      detailKunde: { fontSize: 28, fontWeight: "800", color: "#1a1a1a", marginBottom: 8 },
+      detailMeta:  { fontSize: 14, color: "#666", marginTop: 6 },
+      detailNotiz: { fontSize: 15, color: "#333", background: "#fff", borderRadius: 10, padding: "12px", marginTop: 10, lineHeight: 1.5 },
+      statsBar:    { position: "fixed", bottom: 0, left: "50%", transform: "translateX(-50%)", width: "100%", maxWidth: 480, background: "#1a1a1a", color: "#ccc", display: "flex", justifyContent: "space-around", padding: "12px 16px", paddingBottom: "max(12px, env(safe-area-inset-bottom))", fontSize: 13, fontWeight: "600", boxSizing: "border-box" },
+    };
+
+    ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+  </script>
+
+  <script>
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", () => {
+        navigator.serviceWorker.register("service-worker.js")
+          .catch(err => console.warn("Service Worker Fehler:", err));
+      });
+    }
+  </script>
+</body>
+</html>
