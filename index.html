@@ -57,6 +57,12 @@
       // DD.MM  oder  DD.MM.YYYY  oder  DD.MM.YY
       const dot = s.match(/^(\d{1,2})\.(\d{1,2})(?:\.\d{2,4})?$/);
       if (dot) return { d: parseInt(dot[1]), m: parseInt(dot[2]) };
+      // DDMM ohne Punkt (z. B. "1503" → 15.03) – typisch auf mobiler Zahlentastatur
+      const ddmm4 = s.match(/^(\d{2})(\d{2})$/);
+      if (ddmm4) {
+        const d = parseInt(ddmm4[1]), m = parseInt(ddmm4[2]);
+        if (d >= 1 && d <= 31 && m >= 1 && m <= 12) return { d, m };
+      }
       // YYYY-MM-DD (aus Sheets)
       const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
       if (iso) return { d: parseInt(iso[3]), m: parseInt(iso[2]) };
@@ -477,11 +483,11 @@
             <input style={styles.input} placeholder="z. B. Maria" value={gForm.name}
               onChange={e => setGForm(f => ({ ...f, name: e.target.value }))} autoFocus />
             <label style={styles.label}>Geburtstag (TT.MM) *</label>
-            <input style={styles.input} placeholder="z. B. 15.03" value={gForm.datum}
+            <input style={styles.input} placeholder="z. B. 2412" value={gForm.datum}
               inputMode="numeric"
               onChange={e => setGForm(f => ({ ...f, datum: e.target.value }))} />
             <div style={{ fontSize: 12, color: "#aaa", marginTop: 4, marginBottom: 8 }}>
-              Format: Tag.Monat, z. B. 24.12 für Heiligabend
+              Tag + Monat eingeben, z. B. 2412 oder 24.12 für Heiligabend
             </div>
             <label style={styles.label}>Notiz (optional)</label>
             <input style={styles.input} placeholder="z. B. Lieblingsblumen: Rosen"
