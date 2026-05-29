@@ -90,6 +90,33 @@
       return p.d.toString().padStart(2, "0") + "." + p.m.toString().padStart(2, "0");
     }
 
+    // ── Anfragen-Datum Normalisierung ────────────────────────────────
+    function normalizeAnfrageDatum(s) {
+      if (!s) return "";
+      s = String(s).trim();
+      if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s; // bereits YYYY-MM-DD
+      const dt = new Date(s);
+      if (!isNaN(dt.getTime())) return dt.toISOString().slice(0, 10); // JS-Date-String → ISO
+      return s;
+    }
+    // Repariert verschobene Spalten (alte Einträge ohne telefon/email-Felder)
+    // und normalisiert das Datumsformat
+    function fixAnfrage(a) {
+      let datum   = normalizeAnfrageDatum(a.datum   || "");
+      let email   = String(a.email   || "");
+      let telefon = String(a.telefon || "");
+      // Spaltenverschiebung: datum ist leer, email enthält einen Datumswert
+      if (!datum) {
+        const emailAsDate = normalizeAnfrageDatum(email);
+        if (/^\d{4}-\d{2}-\d{2}$/.test(emailAsDate)) {
+          datum   = emailAsDate;
+          email   = "";
+          if (!/\d/.test(telefon)) telefon = ""; // telefon ohne Ziffern = alter Status-Wert
+        }
+      }
+      return { ...a, datum, email, telefon };
+    }
+
     // ── Sheets helpers ────────────────────────────────────────────────
     async function sheetsGet(url, sheet = "anfragen") {
       const res = await fetch(`${url}?sheet=${sheet}&t=${Date.now()}`);
@@ -162,6 +189,16 @@
       const asNewRef     = useRef(null); // null=ungeprüft, true=neues AS, false=altes AS
       const hasSyncUrl   = !!syncUrlRef.current;
 
+      // ── Anfragen: Datum + Spalten beim Start aus localStorage reparieren
+      useEffect(() => {
+        setAnfragen(prev => {
+          const fixed = prev.map(fixAnfrage);
+          return fixed.every((a, i) =>
+            a.datum === prev[i].datum && a.email === prev[i].email && a.telefon === prev[i].telefon
+          ) ? prev : fixed;
+        });
+      }, []);
+
       // ── Anfragen: initial load from Sheets ────────────────────────
       useEffect(() => {
         const url = syncUrlRef.current;
@@ -170,8 +207,9 @@
         sheetsGet(url, "anfragen")
           .then(data => {
             if (data.length > 0) {
+              const cleaned = data.map(fixAnfrage);
               skipSyncRef.current = true;
-              setAnfragen(data); saveData(data);
+              setAnfragen(cleaned); saveData(cleaned);
             } else {
               const local = loadData();
               if (local.length > 0) sheetsPost(url, local, "anfragen").catch(() => {});
@@ -261,7 +299,11 @@
         setSyncStatus("syncing");
         sheetsGet(url, "anfragen")
           .then(data => {
-            if (data.length > 0) { skipSyncRef.current = true; setAnfragen(data); saveData(data); }
+            if (data.length > 0) {
+              const cleaned = data.map(fixAnfrage);
+              skipSyncRef.current = true;
+              setAnfragen(cleaned); saveData(cleaned);
+            }
             setSyncStatus("ok");
           }).catch(() => setSyncStatus("error"));
       };
