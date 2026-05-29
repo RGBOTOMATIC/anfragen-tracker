@@ -159,6 +159,7 @@
       const syncUrlRef   = useRef(localStorage.getItem(SYNC_URL_KEY) || "");
       const skipSyncRef  = useRef(false);
       const skipGSyncRef = useRef(false);
+      const asNewRef     = useRef(null); // null=ungeprüft, true=neues AS, false=altes AS
       const hasSyncUrl   = !!syncUrlRef.current;
 
       // ── Anfragen: initial load from Sheets ────────────────────────
@@ -208,14 +209,22 @@
         setGSyncStatus("syncing");
         sheetsGet(url, "geburtstage")
           .then(data => {
+            // Sicherheitscheck: altes Apps Script gibt Anfragen-Daten zurück (hat 'quelle'-Feld)
+            if (data.length > 0 && "quelle" in data[0]) {
+              asNewRef.current = false; // altes AS erkannt
+              setGSyncStatus("error");
+              return;
+            }
+            asNewRef.current = true;
             if (data.length > 0) {
-              // Datum normalisieren (Sheets konvertiert "28.05" oft zu Datumsobjekten)
               const cleaned = data.map(g => ({ ...g, datum: normalizeDatum(g.datum || "") }));
               skipGSyncRef.current = true;
               setGeburtstage(cleaned); saveGbData(cleaned);
             } else {
               const local = loadGbData();
-              if (local.length > 0) sheetsPost(url, local, "geburtstage").catch(() => {});
+              if (local.length > 0 && asNewRef.current) {
+                sheetsPost(url, local, "geburtstage").catch(() => {});
+              }
             }
             setGSyncStatus("ok");
           }).catch(() => setGSyncStatus("error"));
@@ -228,9 +237,18 @@
         const url = syncUrlRef.current;
         if (!url) return;
         setGSyncStatus("syncing");
-        const t = setTimeout(() => {
-          sheetsPost(url, geburtstage, "geburtstage")
-            .then(() => setGSyncStatus("ok")).catch(() => setGSyncStatus("error"));
+        const t = setTimeout(async () => {
+          try {
+            // Prüfe AS-Version falls noch unbekannt
+            if (asNewRef.current === null) {
+              const check = await sheetsGet(url, "geburtstage");
+              asNewRef.current = !(check.length > 0 && "quelle" in check[0]);
+            }
+            // Altes AS würde Anfragen überschreiben → POST blockieren
+            if (!asNewRef.current) { setGSyncStatus("error"); return; }
+            await sheetsPost(url, geburtstage, "geburtstage");
+            setGSyncStatus("ok");
+          } catch { setGSyncStatus("error"); }
         }, 600);
         return () => clearTimeout(t);
       }, [geburtstage]);
@@ -249,9 +267,14 @@
       const refreshGeburtstage = () => {
         const url = syncUrlRef.current;
         if (!url) return;
+        asNewRef.current = null; // Bei manuellem Refresh AS-Version erneut prüfen
         setGSyncStatus("syncing");
         sheetsGet(url, "geburtstage")
           .then(data => {
+            if (data.length > 0 && "quelle" in data[0]) {
+              asNewRef.current = false; setGSyncStatus("error"); return;
+            }
+            asNewRef.current = true;
             if (data.length > 0) {
               const cleaned = data.map(g => ({ ...g, datum: normalizeDatum(g.datum || "") }));
               skipGSyncRef.current = true;
@@ -567,6 +590,12 @@
                 ＋ Neu
               </button>
             </div>
+            {gSyncStatus === "error" && (
+              <div style={{ margin: "12px 12px 0", padding: "12px 14px", background: "#fee2e2", borderRadius: 10, fontSize: 13, color: "#991b1b", lineHeight: 1.5 }}>
+                ⚠️ <strong>Apps Script muss aktualisiert werden.</strong><br />
+                Geburtstage werden nur lokal gespeichert bis du den neuen Code.gs im Script-Editor einträgst und neu deployest.
+              </div>
+            )}
             <div style={{ ...styles.list, paddingBottom: 90 }}>
               {sorted.length === 0 && (
                 <div style={styles.empty}>Noch keine Geburtstage eingetragen</div>
