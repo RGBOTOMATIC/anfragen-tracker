@@ -50,25 +50,38 @@
     function saveGbData(d) { try { localStorage.setItem(GB_STORAGE_KEY, JSON.stringify(d)); } catch {} }
 
     // ── Birthday helpers ─────────────────────────────────────────────
+    // Parst jedes datumsähnliche Format → { d, m } oder null
+    function parseDDMM(s) {
+      if (!s) return null;
+      s = String(s).trim();
+      // DD.MM  oder  DD.MM.YYYY  oder  DD.MM.YY
+      const dot = s.match(/^(\d{1,2})\.(\d{1,2})(?:\.\d{2,4})?$/);
+      if (dot) return { d: parseInt(dot[1]), m: parseInt(dot[2]) };
+      // YYYY-MM-DD (aus Sheets)
+      const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+      if (iso) return { d: parseInt(iso[3]), m: parseInt(iso[2]) };
+      // Alles andere, was JavaScript als Datum versteht ("Thu May 28 2026…")
+      const dt = new Date(s);
+      if (!isNaN(dt.getTime())) return { d: dt.getDate(), m: dt.getMonth() + 1 };
+      return null;
+    }
     function daysUntil(ddmm) {
-      const parts = (ddmm || "").split(".");
-      if (parts.length !== 2) return Infinity;
-      const [dd, mm] = parts.map(Number);
-      if (!dd || !mm) return Infinity;
+      const p = parseDDMM(ddmm);
+      if (!p || !p.d || !p.m) return Infinity;
       const now = new Date(); now.setHours(0, 0, 0, 0);
-      let target = new Date(now.getFullYear(), mm - 1, dd);
-      if (target < now) target = new Date(now.getFullYear() + 1, mm - 1, dd);
+      let target = new Date(now.getFullYear(), p.m - 1, p.d);
+      if (target < now) target = new Date(now.getFullYear() + 1, p.m - 1, p.d);
       return Math.round((target - now) / 86400000);
     }
     function formatGbDatum(ddmm) {
-      const parts = (ddmm || "").split(".");
-      if (parts.length !== 2) return ddmm || "";
-      return `${parseInt(parts[0])}. ${MONATE[parseInt(parts[1]) - 1] || parts[1]}`;
+      const p = parseDDMM(ddmm);
+      if (!p) return ddmm || "";
+      return `${p.d}. ${MONATE[p.m - 1] || p.m}`;
     }
     function normalizeDatum(s) {
-      const parts = s.trim().replace(/[-\/,]/g, ".").split(".");
-      if (parts.length !== 2) return s.trim();
-      return parts[0].padStart(2, "0") + "." + parts[1].padStart(2, "0");
+      const p = parseDDMM(s);
+      if (!p || !p.d || !p.m) return String(s).trim();
+      return p.d.toString().padStart(2, "0") + "." + p.m.toString().padStart(2, "0");
     }
 
     // ── Sheets helpers ────────────────────────────────────────────────
@@ -182,8 +195,10 @@
         sheetsGet(url, "geburtstage")
           .then(data => {
             if (data.length > 0) {
+              // Datum normalisieren (Sheets konvertiert "28.05" oft zu Datumsobjekten)
+              const cleaned = data.map(g => ({ ...g, datum: normalizeDatum(g.datum || "") }));
               skipGSyncRef.current = true;
-              setGeburtstage(data); saveGbData(data);
+              setGeburtstage(cleaned); saveGbData(cleaned);
             } else {
               const local = loadGbData();
               if (local.length > 0) sheetsPost(url, local, "geburtstage").catch(() => {});
@@ -223,7 +238,11 @@
         setGSyncStatus("syncing");
         sheetsGet(url, "geburtstage")
           .then(data => {
-            if (data.length > 0) { skipGSyncRef.current = true; setGeburtstage(data); saveGbData(data); }
+            if (data.length > 0) {
+              const cleaned = data.map(g => ({ ...g, datum: normalizeDatum(g.datum || "") }));
+              skipGSyncRef.current = true;
+              setGeburtstage(cleaned); saveGbData(cleaned);
+            }
             setGSyncStatus("ok");
           }).catch(() => setGSyncStatus("error"));
       };

@@ -80,6 +80,9 @@ function doPost(e) {
         if (data.length > 0) {
           const rows = data.map(item => GEBURTSTAGE_HEADERS.map(h => item[h] !== undefined ? item[h] : ''));
           sheet.getRange(2, 1, rows.length, GEBURTSTAGE_HEADERS.length).setValues(rows);
+          // Datum-Spalte als Text erzwingen – verhindert automatische Datumserkennung durch Sheets
+          const datumCol = GEBURTSTAGE_HEADERS.indexOf('datum') + 1;
+          sheet.getRange(2, datumCol, rows.length, 1).setNumberFormat('@');
         }
       } else {
         const sheet = getSheet();
