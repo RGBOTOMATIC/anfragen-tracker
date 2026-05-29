@@ -193,6 +193,14 @@
         return () => clearTimeout(t);
       }, [anfragen]);
 
+      // ── Geburtstage: Datum beim Start aus localStorage normalisieren ─
+      useEffect(() => {
+        setGeburtstage(prev => {
+          const fixed = prev.map(g => ({ ...g, datum: normalizeDatum(g.datum || "") }));
+          return fixed.every((g, i) => g.datum === prev[i].datum) ? prev : fixed;
+        });
+      }, []);
+
       // ── Geburtstage: initial load from Sheets ─────────────────────
       useEffect(() => {
         const url = syncUrlRef.current;
