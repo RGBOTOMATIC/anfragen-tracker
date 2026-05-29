@@ -235,7 +235,8 @@
         saveGbData(geburtstage);
         if (skipGSyncRef.current) { skipGSyncRef.current = false; return; }
         const url = syncUrlRef.current;
-        if (!url) return;
+        // Leere Liste nie ins Sheet schreiben – verhindert versehentliches Löschen beim Start
+        if (!url || geburtstage.length === 0) return;
         setGSyncStatus("syncing");
         const t = setTimeout(async () => {
           try {
