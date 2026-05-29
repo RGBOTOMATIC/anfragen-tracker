@@ -53,7 +53,7 @@
     // Parst jedes datumsähnliche Format → { d, m } oder null
     function parseDDMM(s) {
       if (!s) return null;
-      s = String(s).trim();
+      s = String(s).trim().replace(/\.+$/, ""); // trailing dots entfernen ("24.06." → "24.06")
       // DD.MM  oder  DD.MM.YYYY  oder  DD.MM.YY
       const dot = s.match(/^(\d{1,2})\.(\d{1,2})(?:\.\d{2,4})?$/);
       if (dot) return { d: parseInt(dot[1]), m: parseInt(dot[2]) };
@@ -186,7 +186,8 @@
       const syncUrlRef   = useRef(localStorage.getItem(SYNC_URL_KEY) || "");
       const skipSyncRef  = useRef(false);
       const skipGSyncRef = useRef(false);
-      const asNewRef     = useRef(null); // null=ungeprüft, true=neues AS, false=altes AS
+      const asNewRef     = useRef(null);   // null=ungeprüft, true=neues AS, false=altes AS
+      const gbLoadedRef  = useRef(false);  // true nach erstem sheetsGet – erlaubt leere Liste zu speichern
       const hasSyncUrl   = !!syncUrlRef.current;
 
       // ── Anfragen: Datum + Spalten beim Start aus localStorage reparieren
@@ -254,6 +255,7 @@
               return;
             }
             asNewRef.current = true;
+            gbLoadedRef.current = true; // ab jetzt darf leere Liste gespeichert werden
             if (data.length > 0) {
               const cleaned = data.map(g => ({ ...g, datum: normalizeDatum(g.datum || "") }));
               skipGSyncRef.current = true;
@@ -265,7 +267,7 @@
               }
             }
             setGSyncStatus("ok");
-          }).catch(() => setGSyncStatus("error"));
+          }).catch(() => { gbLoadedRef.current = true; setGSyncStatus("error"); });
       }, []);
 
       // ── Geburtstage: save on change ───────────────────────────────
@@ -273,8 +275,8 @@
         saveGbData(geburtstage);
         if (skipGSyncRef.current) { skipGSyncRef.current = false; return; }
         const url = syncUrlRef.current;
-        // Leere Liste nie ins Sheet schreiben – verhindert versehentliches Löschen beim Start
-        if (!url || geburtstage.length === 0) return;
+        // Leere Liste nur schreiben wenn schon geladen (verhindert versehentliches Löschen beim Start)
+        if (!url || (geburtstage.length === 0 && !gbLoadedRef.current)) return;
         setGSyncStatus("syncing");
         const t = setTimeout(async () => {
           try {
