@@ -122,7 +122,10 @@
       const res = await fetch(`${url}?sheet=${sheet}&t=${Date.now()}`);
       const data = await res.json();
       if (!Array.isArray(data)) throw new Error("Ungültige Antwort vom Script");
-      return data.map(r => ({ ...r, id: Number(r.id) }));
+      return data
+        .map(r => ({ ...r, id: Number(r.id) }))
+        // Leere Zeilen herausfiltern (id=0 oder NaN entsteht wenn Sheet Leerzeilen enthält)
+        .filter(r => r.id > 0);
     }
     async function sheetsPost(url, data, sheet = "anfragen") {
       const res = await fetch(url, {
@@ -183,11 +186,12 @@
       // Navigation
       const [section, setSection] = useState("anfragen");
 
-      const syncUrlRef   = useRef(localStorage.getItem(SYNC_URL_KEY) || "");
-      const skipSyncRef  = useRef(false);
-      const skipGSyncRef = useRef(false);
-      const asNewRef     = useRef(null);   // null=ungeprüft, true=neues AS, false=altes AS
-      const gbLoadedRef  = useRef(false);  // true nach erstem sheetsGet – erlaubt leere Liste zu speichern
+      const syncUrlRef        = useRef(localStorage.getItem(SYNC_URL_KEY) || "");
+      const skipSyncRef       = useRef(false);
+      const skipGSyncRef      = useRef(false);
+      const asNewRef          = useRef(null);   // null=ungeprüft, true=neues AS, false=altes AS
+      const gbLoadedRef       = useRef(false);  // true nach erstem sheetsGet – erlaubt leere Liste zu speichern
+      const anfragenLoadedRef = useRef(false);  // true nach initialem GET – verhindert leeren State ins Sheet zu schreiben
       const hasSyncUrl   = !!syncUrlRef.current;
 
       // ── Anfragen: Datum + Spalten beim Start aus localStorage reparieren
@@ -203,7 +207,10 @@
       // ── Anfragen: initial load from Sheets ────────────────────────
       useEffect(() => {
         const url = syncUrlRef.current;
-        if (!url) return;
+        if (!url) {
+          anfragenLoadedRef.current = true; // kein Sync → sofort schreibbereit
+          return;
+        }
         setSyncStatus("syncing");
         sheetsGet(url, "anfragen")
           .then(data => {
@@ -216,13 +223,21 @@
               if (local.length > 0) sheetsPost(url, local, "anfragen").catch(() => {});
             }
             setSyncStatus("ok");
-          }).catch(() => setSyncStatus("error"));
+          })
+          .catch(() => setSyncStatus("error"))
+          .finally(() => {
+            // Erst jetzt darf der Save-Effect in Sheets schreiben –
+            // verhindert dass leerer localStorage-State das Sheet überschreibt
+            anfragenLoadedRef.current = true;
+          });
       }, []);
 
       // ── Anfragen: save on change ──────────────────────────────────
       useEffect(() => {
         saveData(anfragen);
         if (skipSyncRef.current) { skipSyncRef.current = false; return; }
+        // Nicht schreiben bevor der initiale GET fertig ist (Race Condition fix)
+        if (!anfragenLoadedRef.current) return;
         const url = syncUrlRef.current;
         if (!url) return;
         setSyncStatus("syncing");
